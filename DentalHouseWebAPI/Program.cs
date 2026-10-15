@@ -2,12 +2,19 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using DentalHouseWebAPI.Configurations;
+using DentalHouseWebAPI.Middlewares;
+using DentalHouseWebAPI.Services;
 using WebAPI.Business.Interfaces;
 using WebAPI.Business.Services;
 using WebAPI.DataAccess.Interfaces;
 using WebAPI.DataAccess.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.Configure<MongoLogSettings>(
+    builder.Configuration.GetSection("MongoLogSettings"));
+builder.Services.AddSingleton<IMongoLogService, MongoLogService>();
 
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 var secretKey = jwtSettings["SecretKey"];
@@ -51,6 +58,8 @@ builder.Services.AddSwaggerGen(options =>
             Array.Empty<string>()
         }
     });
+
+    options.DocumentFilter<SwaggerTagOrderFilter>();
 });
 
 builder.Services.AddAuthentication(options =>
@@ -131,6 +140,8 @@ builder.Services.AddScoped<IAppointmentRepository, AppointmentRepository>();
 builder.Services.AddScoped<ISystemLogService, SystemLogService>();
 builder.Services.AddScoped<ISystemLogRepository, SystemLogRepository>();
 
+builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("DentalHouseFrontend", policy =>
@@ -142,8 +153,11 @@ builder.Services.AddCors(options =>
     });
 });
 
-var port = Environment.GetEnvironmentVariable("PORT") ?? Environment.GetEnvironmentVariable("WEBSITES_PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+var port = Environment.GetEnvironmentVariable("PORT") ?? Environment.GetEnvironmentVariable("WEBSITES_PORT");
+if (!string.IsNullOrEmpty(port))
+{
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+}
 
 var app = builder.Build();
 
@@ -158,6 +172,8 @@ if (!app.Environment.IsProduction())
 app.UseRouting();
 
 app.UseCors("DentalHouseFrontend");
+
+app.UseMiddleware<AuditLoggingMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
