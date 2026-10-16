@@ -41,7 +41,7 @@ namespace DentalHouseWebAPI.Controllers
                     startDate,
                     endDate);
 
-            if (response.IsSuccess)
+            if (response.IsSuccess && response.Data != null)
             {
                 return Ok(new
                 {

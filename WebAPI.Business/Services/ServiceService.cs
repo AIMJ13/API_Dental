@@ -153,7 +153,7 @@ namespace WebAPI.Business.Services
             {
                 return new ServiceResponse<Service>
                 {
-                    Data = (Service)result.Data,
+                    Data = result.Data,
                     IsSuccess = true,
                     MessageCode = MessageCodes.Success,
                     Message = "Operacion exitosa"

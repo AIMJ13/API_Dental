@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -11,6 +11,6 @@ namespace WebAPI.Business.DTOs
     {
         [Required]
         [StringLength(100, MinimumLength = 5, ErrorMessage = "El nombre del rol debe tener entre 5 y 100 caracteres")]
-        public string RoleName { get; set; }
+        public string RoleName { get; set; } = string.Empty;
     }
 }

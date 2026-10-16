@@ -37,16 +37,19 @@ namespace WebAPI.Business.Services
 
                 var repoResponse = await _saleRepository.InsertAsync(saleMaster, saleDetails);
 
-                if (repoResponse.OperationStatusCode == 0 && repoResponse.Data != null)
+                if (repoResponse.OperationStatusCode == 0 && repoResponse.Data?.Master != null)
                 {
+                    var master = repoResponse.Data.Master;
+                    var details = repoResponse.Data.Details ?? Enumerable.Empty<SaleDetail>();
+
                     var dataResponse = new SaleResponseDto
                     {
-                        SaleId = repoResponse.Data.Master.SaleId,
-                        AppointmentId = repoResponse.Data.Master.AppointmentId,
-                        SaleDate = repoResponse.Data.Master.SaleDate,
-                        PatientName = repoResponse.Data.Master.PatientName,
-                        DoctorName = repoResponse.Data.Master.DoctorName,
-                        Details = repoResponse.Data.Details.Select(d => new SaleResponseDetailDto
+                        SaleId = master.SaleId,
+                        AppointmentId = master.AppointmentId,
+                        SaleDate = master.SaleDate,
+                        PatientName = master.PatientName,
+                        DoctorName = master.DoctorName,
+                        Details = details.Select(d => new SaleResponseDetailDto
                         {
                             SaleDetailId = d.SaleDetailId,
                             ServiceId = d.ServiceId,
@@ -108,16 +111,19 @@ namespace WebAPI.Business.Services
             {
                 var result = await _saleRepository.GetByIdAsync(id);
 
-                if (result.OperationStatusCode == 0 && result.Data != null)
+                if (result.OperationStatusCode == 0 && result.Data?.Master != null)
                 {
+                    var master = result.Data.Master;
+                    var details = result.Data.Details ?? Enumerable.Empty<SaleDetail>();
+
                     var dataResponse = new SaleResponseDto
                     {
-                        SaleId = result.Data.Master.SaleId,
-                        AppointmentId = result.Data.Master.AppointmentId,
-                        SaleDate = result.Data.Master.SaleDate,
-                        PatientName = result.Data.Master.PatientName,
-                        DoctorName = result.Data.Master.DoctorName,
-                        Details = result.Data.Details.Select(d => new SaleResponseDetailDto
+                        SaleId = master.SaleId,
+                        AppointmentId = master.AppointmentId,
+                        SaleDate = master.SaleDate,
+                        PatientName = master.PatientName,
+                        DoctorName = master.DoctorName,
+                        Details = details.Select(d => new SaleResponseDetailDto
                         {
                             SaleDetailId = d.SaleDetailId,
                             ServiceId = d.ServiceId,

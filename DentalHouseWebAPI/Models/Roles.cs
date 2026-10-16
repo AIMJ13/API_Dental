@@ -9,9 +9,9 @@ namespace DentalHouseWebAPI.Models
 
         [Required]
         [StringLength(50)]
-        public string admin { get; set; }
+        public string admin { get; set; } = string.Empty;
 
         [StringLength(200)]
-        public string Description { get; set; }
+        public string Description { get; set; } = string.Empty;
     }
 }

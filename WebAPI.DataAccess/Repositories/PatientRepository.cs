@@ -96,7 +96,7 @@ namespace WebAPI.DataAccess.Repositories
                     countCommand.Parameters.AddWithValue("@IsActive", (object?)isActive ?? DBNull.Value);
 
                     totalRecords =
-                        (int)await countCommand.ExecuteScalarAsync();
+                        Convert.ToInt32(await countCommand.ExecuteScalarAsync());
                 }
 
                 using (var command =

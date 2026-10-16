@@ -35,7 +35,7 @@ namespace DentalHouseWebAPI.Controllers
                     searchTerm,
                     isActive);
 
-            if (serviceResponse.IsSuccess)
+            if (serviceResponse.IsSuccess && serviceResponse.Data != null)
             {
                 var patientDtoCollection =
                     serviceResponse.Data.Data.Select(c => new PatientDto

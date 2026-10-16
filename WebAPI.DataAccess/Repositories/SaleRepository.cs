@@ -229,7 +229,7 @@ namespace WebAPI.DataAccess.Repositories
                     countCommand.Parameters.AddWithValue("@StartDate", (object?)startDate?.Date ?? DBNull.Value);
                     countCommand.Parameters.AddWithValue("@EndDate", (object?)endDate?.Date ?? DBNull.Value);
 
-                    totalRecords = (int)await countCommand.ExecuteScalarAsync();
+                    totalRecords = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
                 }
 
                 using (var command = new SqlCommand("USP_GetSalesPaged", connection))

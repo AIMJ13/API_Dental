@@ -12,7 +12,7 @@ namespace WebAPI.Core.Common
         
         public int OperationStatusCode { get; set; }
        
-        public string Message { get; set; }
+        public string Message { get; set; } = string.Empty;
         public bool IsSuccess { get; set; }
     }
 }

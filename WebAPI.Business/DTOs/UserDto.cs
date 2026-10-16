@@ -10,8 +10,8 @@ namespace WebAPI.Business.DTOs
 {
     public class UserDto
     {
-        public  int Id { get; set; }
-        public  string UserName { get; set; }
+        public int Id { get; set; }
+        public string UserName { get; set; } = string.Empty;
 
 
         public string? Email { get; set; }
@@ -22,7 +22,7 @@ namespace WebAPI.Business.DTOs
 
         [BindNever]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public List<string> Roles { get; set; }
+        public List<string> Roles { get; set; } = new();
 
 
 

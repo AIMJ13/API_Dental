@@ -104,7 +104,7 @@ namespace WebAPI.DataAccess.Repositories
                     countCommand.Parameters.AddWithValue("@EndDate", (object?)endDate?.Date ?? DBNull.Value);
 
                     totalRecords =
-                        (int)await countCommand.ExecuteScalarAsync();
+                        Convert.ToInt32(await countCommand.ExecuteScalarAsync());
                 }
 
                 using (var command =

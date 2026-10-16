@@ -33,7 +33,7 @@ namespace DentalHouseWebAPI.Controllers
         {
             var serviceResponse = await _serviceService.GetPagedAsync(pageNumber, pageSize, searchTerm, minPrice, maxPrice, isActive);
 
-            if (serviceResponse.IsSuccess)
+            if (serviceResponse.IsSuccess && serviceResponse.Data != null)
             {
                 var serviceDtoCollection = serviceResponse.Data.Data.Select(c => new ServiceDto
                 {
