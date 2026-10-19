@@ -13,5 +13,10 @@ namespace DentalHouseWebAPI.Services
         Task<List<SpecialtyRevenueKpiDto>> GetSpecialtiesAsync(int? year = null, int? month = null);
         Task<PatientRecurrenceKpiDto> GetPatientRecurrenceAsync(int? year = null, int? month = null);
         Task<List<MonthlyRevenueKpiDto>> GetMonthlyRevenueAsync();
+        Task<TechnicalPerformanceKpiDto> GetTechnicalPerformanceAsync(int? dateKey = null);
+        Task<List<TechnicalHeatmapKpiDto>> GetTechnicalHeatmapAsync(int? dateKey = null);
+        Task<List<TechnicalEndpointKpiDto>> GetTechnicalEndpointsAsync(int? dateKey = null);
+        Task<TechnicalSummaryKpiDto> GetTechnicalSummaryAsync(int? dateKey = null);
+        Task<AppointmentsKpisDto> GetAppointmentsKpisAsync(int? year = null, int? month = null);
     }
 }

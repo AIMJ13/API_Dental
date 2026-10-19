@@ -11,11 +11,14 @@ namespace DentalHouseWebAPI.Services
     public class AnalyticsService : IAnalyticsService
     {
         private readonly string _connectionString;
+        private readonly string _technicalConnectionString;
 
         public AnalyticsService(IConfiguration configuration)
         {
             _connectionString = configuration.GetConnectionString("AnalyticsDWConnection")
                 ?? "Server=localhost;Database=DentalHouseDW;Integrated Security=True;TrustServerCertificate=True;";
+            _technicalConnectionString = configuration.GetConnectionString("TechnicalDWConnection")
+                ?? "Server=localhost;Database=DentalHouseDW_Tecnico;Integrated Security=True;TrustServerCertificate=True;";
         }
         }
 
@@ -348,6 +351,154 @@ namespace DentalHouseWebAPI.Services
             }
 
             return list;
+        }
+
+        public async Task<TechnicalPerformanceKpiDto> GetTechnicalPerformanceAsync(int? dateKey = null)
+        {
+            var result = new TechnicalPerformanceKpiDto();
+            if (dateKey.HasValue)
+            {
+                result.Periodo = $"Date {dateKey.Value}";
+            }
+
+            using var conn = new SqlConnection(_technicalConnectionString);
+            await conn.OpenAsync();
+
+            var sql = @"
+                SELECT 
+                    COUNT(*) AS TotalRequests,
+                    ISNULL(AVG(f.ResponseTimeMs), 0) AS AvgResponseTimeMs,
+                    CASE WHEN COUNT(*) > 0 THEN (CAST(SUM(CASE WHEN f.IsError = 1 THEN 1 ELSE 0 END) AS DECIMAL(10,2)) / COUNT(*)) * 100.0 ELSE 0 END AS ErrorRatePct,
+                    ISNULL(SUM(CASE WHEN el.StatusCode >= 500 THEN 1 ELSE 0 END), 0) AS TotalErrors500,
+                    ISNULL(SUM(CASE WHEN el.StatusCode >= 400 AND el.StatusCode < 500 THEN 1 ELSE 0 END), 0) AS TotalClientErrors4xx
+                FROM Fact_Operational_Events f
+                LEFT JOIN Dim_Log_Event_Type el ON f.EventKey = el.EventKey
+                WHERE (@dateKey IS NULL OR f.DateKey = @dateKey);";
+
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@dateKey", (object?)dateKey ?? DBNull.Value);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                result.TotalRequests = reader.GetInt32(0);
+                result.AvgResponseTimeMs = Math.Round(reader.GetDecimal(1), 2);
+                result.ErrorRatePct = Math.Round(reader.GetDecimal(2), 2);
+                result.TotalErrors500 = reader.GetInt32(3);
+                result.TotalClientErrors4xx = reader.GetInt32(4);
+
+                if (result.ErrorRatePct < 2.5m)
+                {
+                    result.SystemStatus = "Healthy";
+                }
+                else if (result.ErrorRatePct <= 5.0m)
+                {
+                    result.SystemStatus = "Degraded";
+                }
+                else
+                {
+                    result.SystemStatus = "Critical";
+                }
+            }
+
+            return result;
+        }
+
+        public async Task<List<TechnicalHeatmapKpiDto>> GetTechnicalHeatmapAsync(int? dateKey = null)
+        {
+            var list = new List<TechnicalHeatmapKpiDto>();
+
+            using var conn = new SqlConnection(_technicalConnectionString);
+            await conn.OpenAsync();
+
+            var sql = @"
+                SELECT 
+                    fh.Hour,
+                    fh.TimeSlot,
+                    ISNULL(ep.SystemModule, 'General') AS SystemModule,
+                    COUNT(*) AS TotalIncidents,
+                    ISNULL(AVG(f.ResponseTimeMs), 0) AS AvgResponseTimeMs
+                FROM Fact_Operational_Events f
+                INNER JOIN Dim_Date_Time fh ON f.DateKey = fh.DateKey
+                LEFT JOIN Dim_Endpoint ep ON f.EndpointKey = ep.EndpointKey
+                WHERE (@dateKey IS NULL OR f.DateKey = @dateKey)
+                GROUP BY fh.Hour, fh.TimeSlot, ep.SystemModule
+                ORDER BY fh.Hour ASC;";
+
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@dateKey", (object?)dateKey ?? DBNull.Value);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new TechnicalHeatmapKpiDto
+                {
+                    Hour = reader.GetInt32(0),
+                    TimeSlot = reader.GetString(1),
+                    SystemModule = reader.GetString(2),
+                    TotalIncidents = reader.GetInt32(3),
+                    AvgResponseTimeMs = Math.Round(reader.GetDecimal(4), 2)
+                });
+            }
+
+            return list;
+        }
+
+        public async Task<List<TechnicalEndpointKpiDto>> GetTechnicalEndpointsAsync(int? dateKey = null)
+        {
+            var list = new List<TechnicalEndpointKpiDto>();
+
+            using var conn = new SqlConnection(_technicalConnectionString);
+            await conn.OpenAsync();
+
+            var sql = @"
+                SELECT 
+                    ISNULL(ep.EndpointRoute, '/unknown') AS EndpointRoute,
+                    ISNULL(ep.HttpMethod, 'GET') AS HttpMethod,
+                    ISNULL(ep.SystemModule, 'General') AS SystemModule,
+                    COUNT(*) AS TotalRequests,
+                    ISNULL(AVG(f.ResponseTimeMs), 0) AS AvgResponseTimeMs,
+                    SUM(CASE WHEN f.IsError = 1 THEN 1 ELSE 0 END) AS ErrorCount,
+                    CASE WHEN COUNT(*) > 0 THEN (CAST(SUM(CASE WHEN f.IsError = 1 THEN 1 ELSE 0 END) AS DECIMAL(10,2)) / COUNT(*)) * 100.0 ELSE 0 END AS ErrorRatePct
+                FROM Fact_Operational_Events f
+                LEFT JOIN Dim_Endpoint ep ON f.EndpointKey = ep.EndpointKey
+                WHERE (@dateKey IS NULL OR f.DateKey = @dateKey)
+                GROUP BY ep.EndpointRoute, ep.HttpMethod, ep.SystemModule
+                ORDER BY TotalRequests DESC;";
+
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@dateKey", (object?)dateKey ?? DBNull.Value);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new TechnicalEndpointKpiDto
+                {
+                    EndpointRoute = reader.GetString(0),
+                    HttpMethod = reader.GetString(1),
+                    SystemModule = reader.GetString(2),
+                    TotalRequests = reader.GetInt32(3),
+                    AvgResponseTimeMs = Math.Round(reader.GetDecimal(4), 2),
+                    ErrorCount = reader.GetInt32(5),
+                    ErrorRatePct = Math.Round(reader.GetDecimal(6), 2)
+                });
+            }
+
+            return list;
+        }
+
+        public async Task<TechnicalSummaryKpiDto> GetTechnicalSummaryAsync(int? dateKey = null)
+        {
+            var performance = await GetTechnicalPerformanceAsync(dateKey);
+            var endpoints = await GetTechnicalEndpointsAsync(dateKey);
+            var heatmap = await GetTechnicalHeatmapAsync(dateKey);
+
+            return new TechnicalSummaryKpiDto
+            {
+                Performance = performance,
+                TopEndpoints = endpoints,
+                Heatmap = heatmap
+            };
         }
 
     }

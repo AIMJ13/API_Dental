@@ -177,5 +177,97 @@ namespace DentalHouseWebAPI.Controllers
             }
         }
 
+        [HttpGet("technical")]
+        public async Task<IActionResult> GetTechnicalSummary([FromQuery] int? dateKey = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetTechnicalSummaryAsync(dateKey);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar el resumen analitico tecnico.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("technical/performance")]
+        public async Task<IActionResult> GetTechnicalPerformance([FromQuery] int? dateKey = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetTechnicalPerformanceAsync(dateKey);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar el rendimiento tecnico.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("technical/heatmap")]
+        public async Task<IActionResult> GetTechnicalHeatmap([FromQuery] int? dateKey = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetTechnicalHeatmapAsync(dateKey);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar el mapa de calor.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("technical/endpoints")]
+        public async Task<IActionResult> GetTechnicalEndpoints([FromQuery] int? dateKey = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetTechnicalEndpointsAsync(dateKey);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar los endpoints tecnicos.",
+                    details = ex.Message
+                });
+            }
+        }
+
     }
 }
