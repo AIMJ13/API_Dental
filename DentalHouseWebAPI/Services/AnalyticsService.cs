@@ -12,6 +12,7 @@ namespace DentalHouseWebAPI.Services
     {
         private readonly string _connectionString;
         private readonly string _technicalConnectionString;
+        private readonly string _citasConnectionString;
 
         public AnalyticsService(IConfiguration configuration)
         {
@@ -19,7 +20,8 @@ namespace DentalHouseWebAPI.Services
                 ?? "Server=localhost;Database=DentalHouseDW;Integrated Security=True;TrustServerCertificate=True;";
             _technicalConnectionString = configuration.GetConnectionString("TechnicalDWConnection")
                 ?? "Server=localhost;Database=DentalHouseDW_Tecnico;Integrated Security=True;TrustServerCertificate=True;";
-        }
+            _citasConnectionString = configuration.GetConnectionString("CitasDWConnection")
+                ?? "Server=localhost;Database=DentalHouseDW_Citas;Integrated Security=True;TrustServerCertificate=True;";
         }
 
         public async Task<BusinessKpisDto> GetBusinessKpisAsync(int? year = null, int? month = null)
@@ -501,5 +503,344 @@ namespace DentalHouseWebAPI.Services
             };
         }
 
+        public async Task<AppointmentsKpisDto> GetAppointmentsKpisAsync(int? year = null, int? month = null)
+        {
+            var summary = await GetAppointmentsSummaryAsync(year, month);
+            var doctors = await GetTopAppointmentDoctorsAsync(year, month);
+            var statuses = await GetAppointmentStatusesAsync(year, month);
+            var specialties = await GetAppointmentSpecialtiesAsync(year, month);
+            var recurrence = await GetAppointmentPatientRecurrenceAsync(year, month);
+            var monthly = await GetMonthlyAppointmentsAsync();
+
+            return new AppointmentsKpisDto
+            {
+                Periodo = summary.Periodo,
+                TotalAppointments = summary.TotalAppointments,
+                CompletedAppointments = summary.CompletedAppointments,
+                CancelledAppointments = summary.CancelledAppointments,
+                PendingAppointments = summary.PendingAppointments,
+                NoShowAppointments = summary.NoShowAppointments,
+                AttendanceRatePct = summary.AttendanceRatePct,
+                CancellationRatePct = summary.CancellationRatePct,
+                VolumeGrowthPct = summary.VolumeGrowthPct,
+                PatientRecurrence = recurrence,
+                TopDoctors = doctors,
+                AppointmentsByStatus = statuses,
+                AppointmentsBySpecialty = specialties,
+                MonthlyAppointments = monthly
+            };
+        }
+
+        public async Task<AppointmentsSummaryKpiDto> GetAppointmentsSummaryAsync(int? year = null, int? month = null)
+        {
+            var result = new AppointmentsSummaryKpiDto();
+            result.Periodo = (year.HasValue && month.HasValue)
+                ? $"Mes {month.Value:D2}/{year.Value}"
+                : (year.HasValue ? $"Año {year.Value}" : "Historico Global");
+
+            using (var conn = new SqlConnection(_citasConnectionString))
+            {
+                await conn.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        COUNT(f.AppointmentKey) AS TotalAppointments,
+                        ISNULL(SUM(CASE WHEN s.StatusName = 'Completada' THEN 1 ELSE 0 END), 0) AS CompletedAppointments,
+                        ISNULL(SUM(CASE WHEN s.StatusName = 'Cancelada' THEN 1 ELSE 0 END), 0) AS CancelledAppointments,
+                        ISNULL(SUM(CASE WHEN s.StatusName = 'Programada' THEN 1 ELSE 0 END), 0) AS PendingAppointments,
+                        ISNULL(SUM(CASE WHEN s.StatusName = 'No asistió' THEN 1 ELSE 0 END), 0) AS NoShowAppointments
+                    FROM Fact_Appointments f
+                    JOIN Dim_Appointment_Status s ON f.StatusKey = s.StatusKey
+                    JOIN Dim_Time t ON f.TimeKey = t.TimeKey
+                    WHERE (@Year IS NULL OR t.Year = @Year)
+                      AND (@Month IS NULL OR t.Month = @Month);";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@Year", (object?)year ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Month", (object?)month ?? DBNull.Value);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    result.TotalAppointments = reader["TotalAppointments"] != DBNull.Value ? Convert.ToInt32(reader["TotalAppointments"]) : 0;
+                    result.CompletedAppointments = reader["CompletedAppointments"] != DBNull.Value ? Convert.ToInt32(reader["CompletedAppointments"]) : 0;
+                    result.CancelledAppointments = reader["CancelledAppointments"] != DBNull.Value ? Convert.ToInt32(reader["CancelledAppointments"]) : 0;
+                    result.PendingAppointments = reader["PendingAppointments"] != DBNull.Value ? Convert.ToInt32(reader["PendingAppointments"]) : 0;
+                    result.NoShowAppointments = reader["NoShowAppointments"] != DBNull.Value ? Convert.ToInt32(reader["NoShowAppointments"]) : 0;
+
+                    if (result.TotalAppointments > 0)
+                    {
+                        result.AttendanceRatePct = Math.Round(((decimal)result.CompletedAppointments / result.TotalAppointments) * 100, 2);
+                        result.CancellationRatePct = Math.Round(((decimal)result.CancelledAppointments / result.TotalAppointments) * 100, 2);
+                    }
+                }
+            }
+
+            if (year.HasValue && month.HasValue)
+            {
+                var monthlyList = await GetMonthlyAppointmentsAsync();
+                var currentIndex = monthlyList.FindIndex(m => m.Year == year.Value && m.Month == month.Value);
+                if (currentIndex >= 0)
+                {
+                    result.VolumeGrowthPct = monthlyList[currentIndex].VolumeGrowthPct;
+                }
+            }
+
+            return result;
+        }
+
+        public async Task<List<DoctorAppointmentsKpiDto>> GetTopAppointmentDoctorsAsync(int? year = null, int? month = null)
+        {
+            var list = new List<DoctorAppointmentsKpiDto>();
+            int grandTotal = 0;
+
+            using (var conn = new SqlConnection(_citasConnectionString))
+            {
+                await conn.OpenAsync();
+
+                var sql = @"
+                    SELECT TOP 5 
+                        d.FullName AS DoctorName,
+                        ISNULL(d.SpecialtyName, 'General') AS SpecialtyName,
+                        COUNT(f.AppointmentKey) AS TotalAppointments,
+                        ISNULL(SUM(CASE WHEN s.StatusName = 'Completada' THEN 1 ELSE 0 END), 0) AS CompletedAppointments
+                    FROM Fact_Appointments f
+                    JOIN Dim_Doctor d ON f.DoctorKey = d.DoctorKey
+                    JOIN Dim_Appointment_Status s ON f.StatusKey = s.StatusKey
+                    JOIN Dim_Time t ON f.TimeKey = t.TimeKey
+                    WHERE (@Year IS NULL OR t.Year = @Year)
+                      AND (@Month IS NULL OR t.Month = @Month)
+                    GROUP BY d.FullName, d.SpecialtyName
+                    ORDER BY TotalAppointments DESC;";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@Year", (object?)year ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Month", (object?)month ?? DBNull.Value);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var total = Convert.ToInt32(reader["TotalAppointments"]);
+                    grandTotal += total;
+                    list.Add(new DoctorAppointmentsKpiDto
+                    {
+                        DoctorName = reader["DoctorName"].ToString() ?? string.Empty,
+                        SpecialtyName = reader["SpecialtyName"].ToString() ?? string.Empty,
+                        TotalAppointments = total,
+                        CompletedAppointments = Convert.ToInt32(reader["CompletedAppointments"])
+                    });
+                }
+            }
+
+            var summary = await GetAppointmentsSummaryAsync(year, month);
+            var baseTotal = summary.TotalAppointments > 0 ? summary.TotalAppointments : grandTotal;
+
+            if (baseTotal > 0)
+            {
+                foreach (var doc in list)
+                {
+                    doc.AppointmentSharePct = Math.Round(((decimal)doc.TotalAppointments / baseTotal) * 100, 2);
+                }
+            }
+
+            return list;
+        }
+
+        public async Task<List<AppointmentStatusKpiDto>> GetAppointmentStatusesAsync(int? year = null, int? month = null)
+        {
+            var list = new List<AppointmentStatusKpiDto>();
+            int grandTotal = 0;
+
+            using (var conn = new SqlConnection(_citasConnectionString))
+            {
+                await conn.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        s.StatusName,
+                        COUNT(f.AppointmentKey) AS TotalAppointments
+                    FROM Fact_Appointments f
+                    JOIN Dim_Appointment_Status s ON f.StatusKey = s.StatusKey
+                    JOIN Dim_Time t ON f.TimeKey = t.TimeKey
+                    WHERE (@Year IS NULL OR t.Year = @Year)
+                      AND (@Month IS NULL OR t.Month = @Month)
+                    GROUP BY s.StatusName
+                    ORDER BY TotalAppointments DESC;";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@Year", (object?)year ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Month", (object?)month ?? DBNull.Value);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var cnt = Convert.ToInt32(reader["TotalAppointments"]);
+                    grandTotal += cnt;
+                    list.Add(new AppointmentStatusKpiDto
+                    {
+                        StatusName = reader["StatusName"].ToString() ?? string.Empty,
+                        Count = cnt
+                    });
+                }
+            }
+
+            var summary = await GetAppointmentsSummaryAsync(year, month);
+            var baseTotal = summary.TotalAppointments > 0 ? summary.TotalAppointments : grandTotal;
+
+            if (baseTotal > 0)
+            {
+                foreach (var st in list)
+                {
+                    st.SharePct = Math.Round(((decimal)st.Count / baseTotal) * 100, 2);
+                }
+            }
+
+            return list;
+        }
+
+        public async Task<List<SpecialtyAppointmentsKpiDto>> GetAppointmentSpecialtiesAsync(int? year = null, int? month = null)
+        {
+            var list = new List<SpecialtyAppointmentsKpiDto>();
+            int grandTotal = 0;
+
+            using (var conn = new SqlConnection(_citasConnectionString))
+            {
+                await conn.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        ISNULL(d.SpecialtyName, 'General') AS SpecialtyName,
+                        COUNT(f.AppointmentKey) AS TotalAppointments
+                    FROM Fact_Appointments f
+                    JOIN Dim_Doctor d ON f.DoctorKey = d.DoctorKey
+                    JOIN Dim_Time t ON f.TimeKey = t.TimeKey
+                    WHERE (@Year IS NULL OR t.Year = @Year)
+                      AND (@Month IS NULL OR t.Month = @Month)
+                    GROUP BY d.SpecialtyName
+                    ORDER BY TotalAppointments DESC;";
+
+                using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("@Year", (object?)year ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Month", (object?)month ?? DBNull.Value);
+
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var cnt = Convert.ToInt32(reader["TotalAppointments"]);
+                    grandTotal += cnt;
+                    list.Add(new SpecialtyAppointmentsKpiDto
+                    {
+                        SpecialtyName = reader["SpecialtyName"].ToString() ?? string.Empty,
+                        TotalAppointments = cnt
+                    });
+                }
+            }
+
+            var summary = await GetAppointmentsSummaryAsync(year, month);
+            var baseTotal = summary.TotalAppointments > 0 ? summary.TotalAppointments : grandTotal;
+
+            if (baseTotal > 0)
+            {
+                foreach (var esp in list)
+                {
+                    esp.SharePct = Math.Round(((decimal)esp.TotalAppointments / baseTotal) * 100, 2);
+                }
+            }
+
+            return list;
+        }
+
+        public async Task<PatientRecurrenceKpiDto> GetAppointmentPatientRecurrenceAsync(int? year = null, int? month = null)
+        {
+            var result = new PatientRecurrenceKpiDto();
+
+            using var conn = new SqlConnection(_citasConnectionString);
+            await conn.OpenAsync();
+
+            var sql = @"
+                SELECT 
+                    COUNT(DISTINCT PatientKey) AS TotalPatients,
+                    COUNT(DISTINCT CASE WHEN AppointmentCount > 1 THEN PatientKey END) AS RepeatPatients
+                FROM (
+                    SELECT f.PatientKey, COUNT(f.AppointmentKey) AS AppointmentCount
+                    FROM Fact_Appointments f
+                    JOIN Dim_Time t ON f.TimeKey = t.TimeKey
+                    WHERE (@Year IS NULL OR t.Year = @Year)
+                      AND (@Month IS NULL OR t.Month = @Month)
+                    GROUP BY f.PatientKey
+                ) sub;";
+
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Year", (object?)year ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Month", (object?)month ?? DBNull.Value);
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var total = reader["TotalPatients"] != DBNull.Value ? Convert.ToInt32(reader["TotalPatients"]) : 0;
+                var repeat = reader["RepeatPatients"] != DBNull.Value ? Convert.ToInt32(reader["RepeatPatients"]) : 0;
+                var rate = total > 0 ? Math.Round(((decimal)repeat / total) * 100, 2) : 0;
+
+                result.TotalPatients = total;
+                result.RepeatPatients = repeat;
+                result.RecurrenceRatePct = rate;
+            }
+
+            return result;
+        }
+
+        public async Task<List<MonthlyAppointmentsKpiDto>> GetMonthlyAppointmentsAsync()
+        {
+            var list = new List<MonthlyAppointmentsKpiDto>();
+
+            using (var conn = new SqlConnection(_citasConnectionString))
+            {
+                await conn.OpenAsync();
+
+                var sql = @"
+                    SELECT 
+                        t.Year,
+                        t.Month,
+                        t.MonthName,
+                        COUNT(f.AppointmentKey) AS TotalAppointments,
+                        ISNULL(SUM(CASE WHEN s.StatusName = 'Completada' THEN 1 ELSE 0 END), 0) AS CompletedAppointments,
+                        ISNULL(SUM(CASE WHEN s.StatusName = 'Cancelada' THEN 1 ELSE 0 END), 0) AS CancelledAppointments
+                    FROM Fact_Appointments f
+                    JOIN Dim_Appointment_Status s ON f.StatusKey = s.StatusKey
+                    JOIN Dim_Time t ON f.TimeKey = t.TimeKey
+                    GROUP BY t.Year, t.Month, t.MonthName
+                    ORDER BY t.Year, t.Month;";
+
+                using var cmd = new SqlCommand(sql, conn);
+                using var reader = await cmd.ExecuteReaderAsync();
+
+                while (await reader.ReadAsync())
+                {
+                    list.Add(new MonthlyAppointmentsKpiDto
+                    {
+                        Year = Convert.ToInt32(reader["Year"]),
+                        Month = Convert.ToInt32(reader["Month"]),
+                        MonthName = reader["MonthName"].ToString() ?? string.Empty,
+                        TotalAppointments = Convert.ToInt32(reader["TotalAppointments"]),
+                        CompletedAppointments = Convert.ToInt32(reader["CompletedAppointments"]),
+                        CancelledAppointments = Convert.ToInt32(reader["CancelledAppointments"])
+                    });
+                }
+            }
+
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (i > 0)
+                {
+                    var prevAppointments = list[i - 1].TotalAppointments;
+                    if (prevAppointments > 0)
+                    {
+                        list[i].VolumeGrowthPct = Math.Round(((decimal)(list[i].TotalAppointments - prevAppointments) / prevAppointments) * 100, 2);
+                    }
+                }
+            }
+
+            return list;
+        }
     }
 }
