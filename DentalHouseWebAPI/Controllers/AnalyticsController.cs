@@ -269,5 +269,172 @@ namespace DentalHouseWebAPI.Controllers
             }
         }
 
+        [HttpGet("appointments")]
+        [HttpGet("citas")]
+        public async Task<IActionResult> GetAppointmentsKpis([FromQuery] int? year = null, [FromQuery] int? month = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetAppointmentsKpisAsync(year, month);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar los KPIs de citas.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("appointments/summary")]
+        [HttpGet("citas/summary")]
+        public async Task<IActionResult> GetAppointmentsSummary([FromQuery] int? year = null, [FromQuery] int? month = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetAppointmentsSummaryAsync(year, month);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar el resumen de citas.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("appointments/doctors")]
+        [HttpGet("citas/doctors")]
+        public async Task<IActionResult> GetTopAppointmentDoctors([FromQuery] int? year = null, [FromQuery] int? month = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetTopAppointmentDoctorsAsync(year, month);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar el top de doctores en citas.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("appointments/status")]
+        [HttpGet("citas/status")]
+        public async Task<IActionResult> GetAppointmentStatuses([FromQuery] int? year = null, [FromQuery] int? month = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetAppointmentStatusesAsync(year, month);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar los estados de citas.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("appointments/specialties")]
+        [HttpGet("citas/specialties")]
+        public async Task<IActionResult> GetAppointmentSpecialties([FromQuery] int? year = null, [FromQuery] int? month = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetAppointmentSpecialtiesAsync(year, month);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar las especialidades en citas.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("appointments/recurrence")]
+        [HttpGet("citas/recurrence")]
+        public async Task<IActionResult> GetAppointmentPatientRecurrence([FromQuery] int? year = null, [FromQuery] int? month = null)
+        {
+            try
+            {
+                var data = await _analyticsService.GetAppointmentPatientRecurrenceAsync(year, month);
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar la recurrencia de pacientes en citas.",
+                    details = ex.Message
+                });
+            }
+        }
+
+        [HttpGet("appointments/monthly")]
+        [HttpGet("citas/monthly")]
+        public async Task<IActionResult> GetMonthlyAppointments()
+        {
+            try
+            {
+                var data = await _analyticsService.GetMonthlyAppointmentsAsync();
+                return Ok(new
+                {
+                    status = "OK",
+                    data
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    code = "500",
+                    message = "Error al consultar las citas mensuales.",
+                    details = ex.Message
+                });
+            }
+        }
     }
 }
