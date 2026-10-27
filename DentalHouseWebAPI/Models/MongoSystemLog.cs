@@ -4,6 +4,7 @@ using MongoDB.Bson.Serialization.Attributes;
 
 namespace DentalHouseWebAPI.Models
 {
+    [BsonIgnoreExtraElements]
     public class MongoSystemLog
     {
         [BsonId]
@@ -51,6 +52,7 @@ namespace DentalHouseWebAPI.Models
         public MongoExceptionDetail? Exception { get; set; }
     }
 
+    [BsonIgnoreExtraElements]
     public class MongoRequestDetail
     {
         [BsonElement("method")]
@@ -66,6 +68,7 @@ namespace DentalHouseWebAPI.Models
         public string? Payload { get; set; }
     }
 
+    [BsonIgnoreExtraElements]
     public class MongoResponseDetail
     {
         [BsonElement("statusCode")]
@@ -75,6 +78,7 @@ namespace DentalHouseWebAPI.Models
         public long ElapsedMilliseconds { get; set; }
     }
 
+    [BsonIgnoreExtraElements]
     public class MongoExceptionDetail
     {
         [BsonElement("message")]

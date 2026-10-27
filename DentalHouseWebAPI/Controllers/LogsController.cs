@@ -1,5 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
+using DentalHouseWebAPI.Models;
+using DentalHouseWebAPI.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using WebAPI.Business.DTOs;
@@ -13,11 +17,13 @@ namespace DentalHouseWebAPI.Controllers
     [Authorize(Roles = "Administrador")]
     public class LogsController : ControllerBase
     {
-        private readonly ISystemLogService _logService;
+        private readonly IMongoLogService _mongoLogService;
+        private readonly ISystemLogService _sqlLogService;
 
-        public LogsController(ISystemLogService logService)
+        public LogsController(IMongoLogService mongoLogService, ISystemLogService sqlLogService)
         {
-            _logService = logService;
+            _mongoLogService = mongoLogService;
+            _sqlLogService = sqlLogService;
         }
 
         [HttpGet]
@@ -37,7 +43,7 @@ namespace DentalHouseWebAPI.Controllers
                 endDate = endDate.Value.Date.AddDays(1).AddTicks(-1);
             }
 
-            var response = await _logService.GetPagedAsync(
+            var mongoResult = await _mongoLogService.GetPagedLogsAsync(
                 pageNumber,
                 pageSize,
                 module,
@@ -48,57 +54,82 @@ namespace DentalHouseWebAPI.Controllers
                 searchTerm,
                 isSuccess);
 
-            if (response.IsSuccess && response.Data != null)
+            if (mongoResult != null && mongoResult.TotalRecords > 0)
             {
                 return Ok(new
                 {
-                    pageNumber = response.Data.PageNumber,
-                    pageSize = response.Data.PageSize,
-                    totalRecords = response.Data.TotalRecords,
-                    totalPages = response.Data.TotalPages,
-                    data = response.Data.Data
+                    pageNumber = mongoResult.PageNumber,
+                    pageSize = mongoResult.PageSize,
+                    totalRecords = mongoResult.TotalRecords,
+                    totalPages = mongoResult.TotalPages,
+                    data = mongoResult.Data.Select(MapMongoLog)
                 });
             }
 
-            return StatusCode(500, new UnsuccessfulResponseDTO
+            var sqlResponse = await _sqlLogService.GetPagedAsync(
+                pageNumber,
+                pageSize,
+                module,
+                action,
+                userName,
+                startDate,
+                endDate,
+                searchTerm,
+                isSuccess);
+
+            if (sqlResponse.IsSuccess && sqlResponse.Data != null)
             {
-                Code = "500",
-                Message = response.Message ?? "Error al consultar los logs del sistema."
+                return Ok(new
+                {
+                    pageNumber = sqlResponse.Data.PageNumber,
+                    pageSize = sqlResponse.Data.PageSize,
+                    totalRecords = sqlResponse.Data.TotalRecords,
+                    totalPages = sqlResponse.Data.TotalPages,
+                    data = sqlResponse.Data.Data
+                });
+            }
+
+            return Ok(new
+            {
+                pageNumber = pageNumber,
+                pageSize = pageSize,
+                totalRecords = 0,
+                totalPages = 1,
+                data = new List<object>()
             });
         }
 
         [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(int id)
+        public async Task<IActionResult> GetById(string id)
         {
-            if (id <= 0)
+            if (string.IsNullOrWhiteSpace(id))
             {
                 return BadRequest(new UnsuccessfulResponseDTO
                 {
                     Code = "400",
-                    Message = "El Id debe ser mayor a 0."
+                    Message = "El Id debe ser especificado."
                 });
             }
 
-            var response = await _logService.GetByIdAsync(id);
-
-            if (response.IsSuccess && response.Data != null)
+            var mongoLog = await _mongoLogService.GetLogByIdAsync(id);
+            if (mongoLog != null)
             {
-                return Ok(response.Data);
+                return Ok(MapMongoLog(mongoLog));
             }
 
-            if (response.MessageCode == MessageCodes.NotFound)
+            if (int.TryParse(id, out var intId) && intId > 0)
             {
-                return NotFound(new UnsuccessfulResponseDTO
+                var sqlResponse = await _sqlLogService.GetByIdAsync(intId);
+                if (sqlResponse.IsSuccess && sqlResponse.Data != null)
                 {
-                    Code = "404",
-                    Message = "No se encontró el registro de log con el Id especificado."
-                });
+                    return Ok(sqlResponse.Data);
+                }
             }
 
-            return StatusCode(500, new UnsuccessfulResponseDTO
+            return NotFound(new UnsuccessfulResponseDTO
             {
-                Code = "500",
-                Message = response.Message ?? "Error interno al consultar el detalle del log."
+                Code = "404",
+                Message = "No se encontró el registro de log con el Id especificado."
             });
         }
 
@@ -129,15 +160,77 @@ namespace DentalHouseWebAPI.Controllers
         [HttpGet("modules")]
         public async Task<IActionResult> GetModules()
         {
-            var response = await _logService.GetModulesAsync();
-            return Ok(response.Data);
+            var modules = await _mongoLogService.GetModulesAsync();
+            return Ok(modules);
         }
 
         [HttpGet("actions")]
         public async Task<IActionResult> GetActions()
         {
-            var response = await _logService.GetActionsAsync();
-            return Ok(response.Data);
+            var actions = await _mongoLogService.GetActionsAsync();
+            return Ok(actions);
+        }
+
+        private static object MapMongoLog(MongoSystemLog x)
+        {
+            var statusCode = x.Response?.StatusCode ?? 200;
+            var isSuccessResult = statusCode > 0 ? (statusCode < 400) : (x.Level != "Error");
+            var moduleName = ResolveModule(x.Request?.Path);
+            var actionName = string.IsNullOrWhiteSpace(x.Request?.Method) ? "Auditoría" : x.Request.Method.ToUpperInvariant();
+            var desc = $"[{actionName}] {x.Request?.Path} - {statusCode} ({x.Response?.ElapsedMilliseconds ?? 0} ms)";
+
+            return new
+            {
+                id = x.Id ?? x.TraceId,
+                logId = x.Id ?? x.TraceId,
+                traceId = x.TraceId,
+                timestamp = x.Timestamp,
+                level = x.Level,
+                environment = x.Environment,
+                application = x.Application,
+                clientIp = x.ClientIp ?? "127.0.0.1",
+                ipAddress = x.ClientIp ?? "127.0.0.1",
+                userId = string.IsNullOrWhiteSpace(x.UserId) ? "Sistema" : x.UserId,
+                userName = string.IsNullOrWhiteSpace(x.UserId) ? "Sistema" : x.UserId,
+                userRole = x.UserRole,
+                clientPlatform = x.ClientPlatform,
+                deviceId = x.DeviceId,
+                method = actionName,
+                path = x.Request?.Path ?? string.Empty,
+                queryString = x.Request?.QueryString,
+                payload = x.Request?.Payload,
+                statusCode = statusCode,
+                elapsedMilliseconds = x.Response?.ElapsedMilliseconds ?? 0,
+                exceptionMessage = x.Exception?.Message,
+                exceptionStackTrace = x.Exception?.StackTrace,
+                exceptionSource = x.Exception?.Source,
+                action = actionName,
+                module = moduleName,
+                description = desc,
+                details = x.Exception?.Message ?? x.Request?.Payload,
+                isSuccess = isSuccessResult,
+                request = x.Request,
+                response = x.Response,
+                exception = x.Exception
+            };
+        }
+
+        private static string ResolveModule(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "General";
+            var p = path.ToLowerInvariant();
+            if (p.Contains("/auth")) return "Autenticación";
+            if (p.Contains("/patient")) return "Pacientes";
+            if (p.Contains("/appointment") || p.Contains("/cita")) return "Citas";
+            if (p.Contains("/doctor")) return "Doctores";
+            if (p.Contains("/invoice")) return "Facturación";
+            if (p.Contains("/sales") || p.Contains("/venta")) return "Ventas";
+            if (p.Contains("/user") || p.Contains("/role")) return "Usuarios";
+            if (p.Contains("/specialt")) return "Especialidades";
+            if (p.Contains("/service")) return "Servicios";
+            if (p.Contains("/analytics")) return "Analíticas";
+            if (p.Contains("/log")) return "Logs";
+            return "General";
         }
     }
 }
